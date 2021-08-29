@@ -16,8 +16,37 @@
     SourceBucket:
       Type: String
       Description: Name of the source bucket whose objects will be scanned. If more than one source bucket, the others will have to be manually added to the AV Scanner Policy after creation.
-      Default: "source-cf-bucket"
+      Default: "antivirs-buckt-src"
       AllowedPattern : ".+"
+    AVScannerFunction:
+      Type: String
+      Description: Name of AV Scan Function.
+      Default: "avScannerCF"
+    AVDefinationsFunction:
+      Type: String
+      Description: Name of Defination Function.
+      Default: "avUpdateDefinitionsCF"
+    IAMDefinationsLambdaRole:
+      Type: String
+      Description: Name of IAM Role for Defination.
+      Default: "AVDefinitionsLambdaRoleCF"
+    IAMAVScannerLambdaRole:
+      Type: String
+      Description: Name of IAM Role for AV scanner.
+      Default: "AVScannerLambdaRoleCF"
+    IAMPolicyAVDefinitions:
+      Type: String
+      Description: Name of IAM Policy for AV definations.
+      Default: "AVDefinitionsLambdaPolicyCF"
+    IAMPolicyAVScanner:
+      Type: String
+      Description: Name of IAM Policy for AV scanner.
+      Default: "AVScannerLambdaPolicyCF"
+    LambdaAVUpdateDefinitionsScheduleRule:
+      Type: String
+      Description: Name of Trigger rule for av definations function.
+      Default: "LambdaAVUpdateDefinitionsScheduleCF"
+      
 
   Conditions:
     publicBucket: !Equals [ !Ref AVBucketType, "public" ]
@@ -55,12 +84,6 @@
         VersioningConfiguration:
           Status: Suspended
 
-    # S3Event:
-    #   Type: AWS::S3::Bucket LambdaConfiguration
-    #   Properties:
-    #     Event: s3:ObjectCreated:*
-    #     Function: 
-    #       Ref: LambdaAVScanner
     S3BucketPolicyAVDefinitions:
       Type: AWS::S3::BucketPolicy
       Condition: publicBucket
@@ -82,7 +105,7 @@
     IamRoleAVDefinitions:
       Type: 'AWS::IAM::Role'
       Properties:
-        RoleName: AVDefinitionsLambdaRoleCF
+        RoleName: !Ref IAMDefinationsLambdaRole
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:
@@ -99,7 +122,7 @@
     IamRoleAVScanner:
       Type: 'AWS::IAM::Role'
       Properties:
-        RoleName: AVScannerLambdaRoleCF
+        RoleName: !Ref IAMAVScannerLambdaRole
         AssumeRolePolicyDocument:
           Version: "2012-10-17"
           Statement:
@@ -116,7 +139,7 @@
     IamPolicyAVDefinitions:
       Type: AWS::IAM::Policy
       Properties:
-        PolicyName: AVDefinitionsLambdaPolicyCF
+        PolicyName: !Ref IAMPolicyAVDefinitions
         Roles:
           - !Ref IamRoleAVDefinitions
         PolicyDocument:
@@ -150,7 +173,7 @@
     IamPolicyAVScanner:
       Type: AWS::IAM::Policy
       Properties:
-        PolicyName: AVScannerLambdaPolicyCF
+        PolicyName: !Ref IAMPolicyAVScanner
         Roles:
           - !Ref IamRoleAVScanner
         PolicyDocument:
@@ -204,7 +227,7 @@
     LambdaAVUpdateDefinitions:
       Type: AWS::Lambda::Function
       Properties:
-        FunctionName: avUpdateDefinitionsCF
+        FunctionName: !Ref AVDefinationsFunction
         Description: LambdaFunction to update the AntiVirus definitions in the AV Definitions bucket.
         Runtime: python3.7
         Code: Lambda/lambda.zip
@@ -224,7 +247,7 @@
       DependsOn:
         - LambdaAVUpdateDefinitions
       Properties:
-        Name: LambdaAVUpdateDefinitionsScheduleCF
+        Name: !Ref LambdaAVUpdateDefinitionsScheduleRule
         Description: A schedule for the AV Update Definitions Lambda function.
         ScheduleExpression: rate(3 hours)
         State: ENABLED
@@ -245,7 +268,7 @@
     LambdaAVScanner:
       Type: AWS::Lambda::Function
       Properties:
-        FunctionName: avScannerCF
+        FunctionName: !Ref AVScannerFunction
         Description: LambdaFunction to scan newly uploaded objects in S3.
         Runtime: python3.7
         Code: Lambda/lambda.zip
@@ -256,45 +279,41 @@
         Environment:
           Variables:
             AV_DEFINITION_S3_BUCKET: !Ref S3BucketAVDefinitions
-        # Events:
-        #   CreateThumbnailEvent:
-        #     Type: S3
-        #     Properties:
-        #       Bucket: 
-        #         Ref : S3BucketTestAV
-        #       Events: s3:ObjectCreated:Put
         Tags:
           - Key: Service
             Value: bucket-antivirus
     
     S3BucketTestAV:
       Type: AWS::S3::Bucket
+      DependsOn: BucketPermission
       Properties:
         BucketName: 
           Ref: SourceBucket
         AccessControl: Private
-        # NotificationConfiguration:
-        #   LambdaConfigurations:
-        #     - Event: s3:ObjectCreated:*
-        #       Function: !GetAtt LambdaAVScanner.Arn
-  
-    ExampleInvokePermission:
+        NotificationConfiguration:
+          LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !GetAtt LambdaAVScanner.Arn
+    BucketPermission:
       Type: AWS::Lambda::Permission
-      DependsOn: LambdaAVScanner
       Properties:
-        FunctionName:
-          Fn::GetAtt:
-            - LambdaAVScanner
-            - Arn
-        Action: lambda:InvokeFunction
+        Action: 'lambda:InvokeFunction'
+        FunctionName: !Ref LambdaAVScanner
         Principal: s3.amazonaws.com
-        SourceArn: !GetAtt S3BucketTestAV.Arn  
+        SourceAccount: !Ref "AWS::AccountId"
+        SourceArn: !Sub "arn:aws:s3:::${SourceBucket}" 
 
   Outputs:
 
     S3BucketAvDefinitions:
       Value: !Ref S3BucketAVDefinitions
       Description: S3 Bucket for the AV Definitions
+    SourceS3Bucket:
+      Value: !Ref S3BucketTestAV
+      Description: Source S3 Bucket 
+    BucketPermission:
+      Value: !Ref BucketPermission
+      Description: Source S3 Bucket permissions 
 
     LambdaAVUpdateDefinitions:
       Value: !Ref LambdaAVUpdateDefinitions

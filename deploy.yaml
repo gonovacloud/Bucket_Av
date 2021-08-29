@@ -14,8 +14,36 @@ Parameters:
     Description: Name of the source bucket whose objects will be scanned. If more
       than one source bucket, the others will have to be manually added to the AV
       Scanner Policy after creation.
-    Default: source-cf-bucket
+    Default: antivirs-buckt-src
     AllowedPattern: .+
+  AVScannerFunction:
+    Type: String
+    Description: Name of AV Scan Function.
+    Default: avScannerCF
+  AVDefinationsFunction:
+    Type: String
+    Description: Name of Defination Function.
+    Default: avUpdateDefinitionsCF
+  IAMDefinationsLambdaRole:
+    Type: String
+    Description: Name of IAM Role for Defination.
+    Default: AVDefinitionsLambdaRoleCF
+  IAMAVScannerLambdaRole:
+    Type: String
+    Description: Name of IAM Role for AV scanner.
+    Default: AVScannerLambdaRoleCF
+  IAMPolicyAVDefinitions:
+    Type: String
+    Description: Name of IAM Policy for AV definations.
+    Default: AVDefinitionsLambdaPolicyCF
+  IAMPolicyAVScanner:
+    Type: String
+    Description: Name of IAM Policy for AV scanner.
+    Default: AVScannerLambdaPolicyCF
+  LambdaAVUpdateDefinitionsScheduleRule:
+    Type: String
+    Description: Name of Trigger rule for av definations function.
+    Default: LambdaAVUpdateDefinitionsScheduleCF
 Conditions:
   publicBucket:
     Fn::Equals:
@@ -93,7 +121,8 @@ Resources:
   IamRoleAVDefinitions:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: AVDefinitionsLambdaRoleCF
+      RoleName:
+        Ref: IAMDefinationsLambdaRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -109,7 +138,8 @@ Resources:
   IamRoleAVScanner:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: AVScannerLambdaRoleCF
+      RoleName:
+        Ref: IAMAVScannerLambdaRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -125,7 +155,8 @@ Resources:
   IamPolicyAVDefinitions:
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: AVDefinitionsLambdaPolicyCF
+      PolicyName:
+        Ref: IAMPolicyAVDefinitions
       Roles:
       - Ref: IamRoleAVDefinitions
       PolicyDocument:
@@ -167,7 +198,8 @@ Resources:
   IamPolicyAVScanner:
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: AVScannerLambdaPolicyCF
+      PolicyName:
+        Ref: IAMPolicyAVScanner
       Roles:
       - Ref: IamRoleAVScanner
       PolicyDocument:
@@ -235,7 +267,8 @@ Resources:
   LambdaAVUpdateDefinitions:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: avUpdateDefinitionsCF
+      FunctionName:
+        Ref: AVDefinationsFunction
       Description: LambdaFunction to update the AntiVirus definitions in the AV Definitions
         bucket.
       Runtime: python3.7
@@ -261,7 +294,8 @@ Resources:
     DependsOn:
     - LambdaAVUpdateDefinitions
     Properties:
-      Name: LambdaAVUpdateDefinitionsScheduleCF
+      Name:
+        Ref: LambdaAVUpdateDefinitionsScheduleRule
       Description: A schedule for the AV Update Definitions Lambda function.
       ScheduleExpression: rate(3 hours)
       State: ENABLED
@@ -283,7 +317,8 @@ Resources:
   LambdaAVScanner:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: avScannerCF
+      FunctionName:
+        Ref: AVScannerFunction
       Description: LambdaFunction to scan newly uploaded objects in S3.
       Runtime: python3.7
       Code:
@@ -305,29 +340,42 @@ Resources:
         Value: bucket-antivirus
   S3BucketTestAV:
     Type: AWS::S3::Bucket
+    DependsOn: BucketPermission
     Properties:
       BucketName:
         Ref: SourceBucket
       AccessControl: Private
-  ExampleInvokePermission:
+      NotificationConfiguration:
+        LambdaConfigurations:
+        - Event: s3:ObjectCreated:*
+          Function:
+            Fn::GetAtt:
+            - LambdaAVScanner
+            - Arn
+  BucketPermission:
     Type: AWS::Lambda::Permission
-    DependsOn: LambdaAVScanner
     Properties:
-      FunctionName:
-        Fn::GetAtt:
-        - LambdaAVScanner
-        - Arn
       Action: lambda:InvokeFunction
+      FunctionName:
+        Ref: LambdaAVScanner
       Principal: s3.amazonaws.com
+      SourceAccount:
+        Ref: AWS::AccountId
       SourceArn:
-        Fn::GetAtt:
-        - S3BucketTestAV
-        - Arn
+        Fn::Sub: arn:aws:s3:::${SourceBucket}
 Outputs:
   S3BucketAvDefinitions:
     Value:
       Ref: S3BucketAVDefinitions
     Description: S3 Bucket for the AV Definitions
+  SourceS3Bucket:
+    Value:
+      Ref: S3BucketTestAV
+    Description: Source S3 Bucket
+  BucketPermission:
+    Value:
+      Ref: BucketPermission
+    Description: Source S3 Bucket permissions
   LambdaAVUpdateDefinitions:
     Value:
       Ref: LambdaAVUpdateDefinitions
