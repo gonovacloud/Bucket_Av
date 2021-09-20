@@ -5,7 +5,7 @@ Parameters:
     Type: String
     Description: Specifies if the bucket to hold the AV deinitions should be "public"
       or "private". Only choose "public" if other accounts need to access this bucket."
-    Default: public
+    Default: private
     AllowedValues:
     - public
     - private
@@ -14,36 +14,36 @@ Parameters:
     Description: Name of the source bucket whose objects will be scanned. If more
       than one source bucket, the others will have to be manually added to the AV
       Scanner Policy after creation.
-    Default: antivirs-buckt-src
+    Default: scanning-virus
     AllowedPattern: .+
   AVScannerFunction:
     Type: String
     Description: Name of AV Scan Function.
-    Default: avScannerCF
+    Default: avScannerN2
   AVDefinationsFunction:
     Type: String
     Description: Name of Defination Function.
-    Default: avUpdateDefinitionsCF
+    Default: avUpdateDefinitionsN2
   IAMDefinationsLambdaRole:
     Type: String
     Description: Name of IAM Role for Defination.
-    Default: AVDefinitionsLambdaRoleCF
+    Default: AVDefinitionsLambdaRoleN2
   IAMAVScannerLambdaRole:
     Type: String
     Description: Name of IAM Role for AV scanner.
-    Default: AVScannerLambdaRoleCF
+    Default: AVScannerLambdaRoleN2
   IAMPolicyAVDefinitions:
     Type: String
     Description: Name of IAM Policy for AV definations.
-    Default: AVDefinitionsLambdaPolicyCF
+    Default: AVDefinitionsLambdaPolicyN2
   IAMPolicyAVScanner:
     Type: String
     Description: Name of IAM Policy for AV scanner.
-    Default: AVScannerLambdaPolicyCF
+    Default: AVScannerLambdaPolicyN2
   LambdaAVUpdateDefinitionsScheduleRule:
     Type: String
     Description: Name of Trigger rule for av definations function.
-    Default: LambdaAVUpdateDefinitionsScheduleCF
+    Default: LambdaAVUpdateDefinitionsScheduleN2
 Conditions:
   publicBucket:
     Fn::Equals:
@@ -219,6 +219,8 @@ Resources:
           - s3:GetObjectTagging
           - s3:GetObjectVersion
           - s3:PutObjectTagging
+          - s3:PutObject
+          - s3:DeleteObject
           - s3:PutObjectVersionTagging
           Resource:
           - Fn::Sub:
@@ -273,8 +275,8 @@ Resources:
         bucket.
       Runtime: python3.7
       Code:
-        S3Bucket: nova-sam-dev
-        S3Key: 670cc3e81e8540c710a8237d8199b4a9
+        S3Bucket: s3-scan-n
+        S3Key: dea5ff246aaf8e67dd715731ce39802e
       Handler: update.lambda_handler
       MemorySize: 1024
       Timeout: 300
@@ -297,7 +299,7 @@ Resources:
       Name:
         Ref: LambdaAVUpdateDefinitionsScheduleRule
       Description: A schedule for the AV Update Definitions Lambda function.
-      ScheduleExpression: rate(3 hours)
+      ScheduleExpression: rate(1 minute)
       State: ENABLED
       Targets:
       - Arn:
@@ -322,8 +324,8 @@ Resources:
       Description: LambdaFunction to scan newly uploaded objects in S3.
       Runtime: python3.7
       Code:
-        S3Bucket: nova-sam-dev
-        S3Key: 670cc3e81e8540c710a8237d8199b4a9
+        S3Bucket: s3-scan-n
+        S3Key: dea5ff246aaf8e67dd715731ce39802e
       Handler: scan.lambda_handler
       MemorySize: 1500
       Timeout: 300
@@ -338,31 +340,100 @@ Resources:
       Tags:
       - Key: Service
         Value: bucket-antivirus
-  S3BucketTestAV:
-    Type: AWS::S3::Bucket
-    DependsOn: BucketPermission
-    Properties:
-      BucketName:
-        Ref: SourceBucket
-      AccessControl: Private
-      NotificationConfiguration:
-        LambdaConfigurations:
-        - Event: s3:ObjectCreated:*
-          Function:
-            Fn::GetAtt:
-            - LambdaAVScanner
-            - Arn
-  BucketPermission:
+  LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      Action: lambda:InvokeFunction
       FunctionName:
-        Ref: LambdaAVScanner
+        Fn::GetAtt:
+        - LambdaAVScanner
+        - Arn
+      Action: lambda:InvokeFunction
       Principal: s3.amazonaws.com
       SourceAccount:
         Ref: AWS::AccountId
       SourceArn:
         Fn::Sub: arn:aws:s3:::${SourceBucket}
+  LambdaIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetBucketNotification
+            - s3:PutBucketNotification
+            Resource:
+              Fn::Sub: arn:aws:s3:::${SourceBucket}
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+  CustomResourceLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaIAMRole
+        - Arn
+      Code:
+        ZipFile: "\nfrom __future__ import print_function\nimport json\nimport boto3\n\
+          import cfnresponse\n\nSUCCESS = \"SUCCESS\"\nFAILED = \"FAILED\"\n\nprint('Loading\
+          \ function')\ns3 = boto3.resource('s3')\n\ndef lambda_handler(event, context):\n\
+          \    print(\"Received event: \" + json.dumps(event, indent=2))\n    responseData={}\n\
+          \    try:\n        if event['RequestType'] == 'Delete':\n            print(\"\
+          Request Type:\",event['RequestType'])\n            Bucket=event['ResourceProperties']['Bucket']\n\
+          \            delete_notification(Bucket)\n            print(\"Sending response\
+          \ to custom resource after Delete\")\n        elif event['RequestType']\
+          \ == 'Create' or event['RequestType'] == 'Update':\n            print(\"\
+          Request Type:\",event['RequestType'])\n            LambdaArn=event['ResourceProperties']['LambdaArn']\n\
+          \            Bucket=event['ResourceProperties']['Bucket']\n            add_notification(LambdaArn,\
+          \ Bucket)\n            responseData={'Bucket':Bucket}\n            print(\"\
+          Sending response to custom resource\")\n        responseStatus = 'SUCCESS'\n\
+          \    except Exception as e:\n        print('Failed to process:', e)\n  \
+          \      responseStatus = 'FAILED'\n        responseData = {'Failure': 'Something\
+          \ bad happened.'}\n    cfnresponse.send(event, context, responseStatus,\
+          \ responseData)\n\ndef add_notification(LambdaArn, Bucket):\n    bucket_notification\
+          \ = s3.BucketNotification(Bucket)\n    response = bucket_notification.put(\n\
+          \      NotificationConfiguration={\n        'LambdaFunctionConfigurations':\
+          \ [\n          {\n              'LambdaFunctionArn': LambdaArn,\n      \
+          \        'Events': [\n                  's3:ObjectCreated:*'\n         \
+          \     ]\n          }\n        ]\n      }\n    )\n    print(\"Put request\
+          \ completed....\")\n  \ndef delete_notification(Bucket):\n    bucket_notification\
+          \ = s3.BucketNotification(Bucket)\n    response = bucket_notification.put(\n\
+          \        NotificationConfiguration={}\n    )\n    print(\"Delete request\
+          \ completed....\")\n"
+      Runtime: python3.6
+      Timeout: 50
+  LambdaTrigger:
+    Type: Custom::LambdaTrigger
+    DependsOn: LambdaInvokePermission
+    Properties:
+      ServiceToken:
+        Fn::GetAtt:
+        - CustomResourceLambdaFunction
+        - Arn
+      LambdaArn:
+        Fn::GetAtt:
+        - LambdaAVScanner
+        - Arn
+      Bucket:
+        Ref: SourceBucket
 Outputs:
   S3BucketAvDefinitions:
     Value:
@@ -370,12 +441,8 @@ Outputs:
     Description: S3 Bucket for the AV Definitions
   SourceS3Bucket:
     Value:
-      Ref: S3BucketTestAV
+      Ref: SourceBucket
     Description: Source S3 Bucket
-  BucketPermission:
-    Value:
-      Ref: BucketPermission
-    Description: Source S3 Bucket permissions
   LambdaAVUpdateDefinitions:
     Value:
       Ref: LambdaAVUpdateDefinitions
