@@ -97,6 +97,8 @@ Resources:
         Value: bucket-antivirus
       VersioningConfiguration:
         Status: Suspended
+    Metadata:
+      SamResourceId: S3BucketAVDefinitions
   S3BucketPolicyAVDefinitions:
     Type: AWS::S3::BucketPolicy
     Condition: publicBucket
@@ -118,6 +120,8 @@ Resources:
             - arn:aws:s3:::${BucketName}/*
             - BucketName:
                 Ref: S3BucketAVDefinitions
+    Metadata:
+      SamResourceId: S3BucketPolicyAVDefinitions
   IamRoleAVDefinitions:
     Type: AWS::IAM::Role
     Properties:
@@ -135,6 +139,8 @@ Resources:
       Tags:
       - Key: Service
         Value: bucket-antivirus
+    Metadata:
+      SamResourceId: IamRoleAVDefinitions
   IamRoleAVScanner:
     Type: AWS::IAM::Role
     Properties:
@@ -152,6 +158,8 @@ Resources:
       Tags:
       - Key: Service
         Value: bucket-antivirus
+    Metadata:
+      SamResourceId: IamRoleAVScanner
   IamPolicyAVDefinitions:
     Type: AWS::IAM::Policy
     Properties:
@@ -195,6 +203,8 @@ Resources:
             - arn:aws:s3:::${BucketName}
             - BucketName:
                 Ref: S3BucketAVDefinitions
+    Metadata:
+      SamResourceId: IamPolicyAVDefinitions
   IamPolicyAVScanner:
     Type: AWS::IAM::Policy
     Properties:
@@ -266,6 +276,8 @@ Resources:
             - arn:aws:s3:::${BucketName}
             - BucketName:
                 Ref: S3BucketAVDefinitions
+    Metadata:
+      SamResourceId: IamPolicyAVScanner
   LambdaAVUpdateDefinitions:
     Type: AWS::Lambda::Function
     Properties:
@@ -273,9 +285,9 @@ Resources:
         Ref: AVDefinationsFunction
       Description: LambdaFunction to update the AntiVirus definitions in the AV Definitions
         bucket.
-      Runtime: python3.7
+      Runtime: python3.9
       Code:
-        S3Bucket: s3-scan-n
+        S3Bucket: s3-scan-n2
         S3Key: dea5ff246aaf8e67dd715731ce39802e
       Handler: update.lambda_handler
       MemorySize: 1024
@@ -291,6 +303,8 @@ Resources:
       Tags:
       - Key: Service
         Value: bucket-antivirus
+    Metadata:
+      SamResourceId: LambdaAVUpdateDefinitions
   LambdaAVUpdateDefinitionsSchedule:
     Type: AWS::Events::Rule
     DependsOn:
@@ -305,6 +319,8 @@ Resources:
       - Arn:
           Fn::Sub: ${LambdaAVUpdateDefinitions.Arn}
         Id: LambdaAVUpdateDefinitionsSchedule
+    Metadata:
+      SamResourceId: LambdaAVUpdateDefinitionsSchedule
   LambdaAVUpdateDefinitionsSchedulePermission:
     Type: AWS::Lambda::Permission
     DependsOn:
@@ -316,15 +332,17 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn:
         Fn::Sub: ${LambdaAVUpdateDefinitionsSchedule.Arn}
+    Metadata:
+      SamResourceId: LambdaAVUpdateDefinitionsSchedulePermission
   LambdaAVScanner:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName:
         Ref: AVScannerFunction
       Description: LambdaFunction to scan newly uploaded objects in S3.
-      Runtime: python3.7
+      Runtime: python3.9
       Code:
-        S3Bucket: s3-scan-n
+        S3Bucket: s3-scan-n2
         S3Key: dea5ff246aaf8e67dd715731ce39802e
       Handler: scan.lambda_handler
       MemorySize: 1500
@@ -340,6 +358,8 @@ Resources:
       Tags:
       - Key: Service
         Value: bucket-antivirus
+    Metadata:
+      SamResourceId: LambdaAVScanner
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -353,6 +373,8 @@ Resources:
         Ref: AWS::AccountId
       SourceArn:
         Fn::Sub: arn:aws:s3:::${SourceBucket}
+    Metadata:
+      SamResourceId: LambdaInvokePermission
   LambdaIAMRole:
     Type: AWS::IAM::Role
     Properties:
@@ -383,6 +405,8 @@ Resources:
             - logs:CreateLogStream
             - logs:PutLogEvents
             Resource: arn:aws:logs:*:*:*
+    Metadata:
+      SamResourceId: LambdaIAMRole
   CustomResourceLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -398,28 +422,30 @@ Resources:
           \    print(\"Received event: \" + json.dumps(event, indent=2))\n    responseData={}\n\
           \    try:\n        if event['RequestType'] == 'Delete':\n            print(\"\
           Request Type:\",event['RequestType'])\n            Bucket=event['ResourceProperties']['Bucket']\n\
-          \            delete_notification(Bucket)\n            print(\"Sending response\
-          \ to custom resource after Delete\")\n        elif event['RequestType']\
+          \            # delete_notification(Bucket)\n            print(\"Sending\
+          \ response to custom resource after Delete\")\n        elif event['RequestType']\
           \ == 'Create' or event['RequestType'] == 'Update':\n            print(\"\
           Request Type:\",event['RequestType'])\n            LambdaArn=event['ResourceProperties']['LambdaArn']\n\
-          \            Bucket=event['ResourceProperties']['Bucket']\n            add_notification(LambdaArn,\
-          \ Bucket)\n            responseData={'Bucket':Bucket}\n            print(\"\
-          Sending response to custom resource\")\n        responseStatus = 'SUCCESS'\n\
-          \    except Exception as e:\n        print('Failed to process:', e)\n  \
-          \      responseStatus = 'FAILED'\n        responseData = {'Failure': 'Something\
-          \ bad happened.'}\n    cfnresponse.send(event, context, responseStatus,\
-          \ responseData)\n\ndef add_notification(LambdaArn, Bucket):\n    bucket_notification\
-          \ = s3.BucketNotification(Bucket)\n    response = bucket_notification.put(\n\
-          \      NotificationConfiguration={\n        'LambdaFunctionConfigurations':\
-          \ [\n          {\n              'LambdaFunctionArn': LambdaArn,\n      \
-          \        'Events': [\n                  's3:ObjectCreated:*'\n         \
-          \     ]\n          }\n        ]\n      }\n    )\n    print(\"Put request\
-          \ completed....\")\n  \ndef delete_notification(Bucket):\n    bucket_notification\
-          \ = s3.BucketNotification(Bucket)\n    response = bucket_notification.put(\n\
-          \        NotificationConfiguration={}\n    )\n    print(\"Delete request\
-          \ completed....\")\n"
-      Runtime: python3.6
+          \            Bucket=event['ResourceProperties']['Bucket']\n            #\
+          \ add_notification(LambdaArn, Bucket)\n            responseData={'Bucket':Bucket}\n\
+          \            print(\"Sending response to custom resource\")\n        responseStatus\
+          \ = 'SUCCESS'\n    except Exception as e:\n        print('Failed to process:',\
+          \ e)\n        responseStatus = 'FAILED'\n        responseData = {'Failure':\
+          \ 'Something bad happened.'}\n    cfnresponse.send(event, context, responseStatus,\
+          \ responseData)\n\n# def add_notification(LambdaArn, Bucket):\n#     bucket_notification\
+          \ = s3.BucketNotification(Bucket)\n#     response = bucket_notification.put(\n\
+          #       NotificationConfiguration={\n#         'LambdaFunctionConfigurations':\
+          \ [\n#           {\n#               'LambdaFunctionArn': LambdaArn,\n# \
+          \              'Events': [\n#                   's3:ObjectCreated:*'\n#\
+          \               ]\n#           }\n#         ]\n#       }\n#     )\n#   \
+          \  print(\"Put request completed....\")\n  \n# def delete_notification(Bucket):\n\
+          #     bucket_notification = s3.BucketNotification(Bucket)\n#     response\
+          \ = bucket_notification.put(\n#         NotificationConfiguration={}\n#\
+          \     )\n#     print(\"Delete request completed....\")\n"
+      Runtime: python3.9
       Timeout: 50
+    Metadata:
+      SamResourceId: CustomResourceLambdaFunction
   LambdaTrigger:
     Type: Custom::LambdaTrigger
     DependsOn: LambdaInvokePermission
@@ -434,6 +460,8 @@ Resources:
         - Arn
       Bucket:
         Ref: SourceBucket
+    Metadata:
+      SamResourceId: LambdaTrigger
 Outputs:
   S3BucketAvDefinitions:
     Value:
