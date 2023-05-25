@@ -16,26 +16,35 @@ Parameters:
     Description: Name of the source bucket whose objects will be scanned. If more
       than one source bucket, the others will have to be manually added to the AV
       Scanner Policy after creation.
-    Default: scanning-virus
     AllowedPattern: .+
   
   LambdaFileS3BucketName:
     Type: String
     Description: Name of s3 bucket where lambda.zip file is uploaded
-    # Default: avScannerNTest
+
+
+  AVScannerFunctionAlias:
+    Type: String
+    Description: Name of Alias of AV Scan Lambda Function.
+    Default: avScannerAlias
 
   AVScannerFunction:
     Type: String
-    Description: Name of AV Scan Function.
+    Description: Name of AV Scan Lambda Function.
     Default: avScannerNTest
   
-  AVDefinationsFunction:
+  AVDefinitionsFunctionAlias:
     Type: String
-    Description: Name of Defination Function.
+    Description: Name of Alias of Definition Lambda Function.
+    Default: avUpdateDefinitionsAlias
+
+  AVDefinitionsFunction:
+    Type: String
+    Description: Name of Definition Lambda Function.
     Default: avUpdateDefinitionsNTest
-  IAMDefinationsLambdaRole:
+  IAMDefinitionsLambdaRole:
     Type: String
-    Description: Name of IAM Role for Defination.
+    Description: Name of IAM Role for Definition.
     Default: AVDefinitionsLambdaRoleNTest
   IAMAVScannerLambdaRole:
     Type: String
@@ -44,7 +53,7 @@ Parameters:
 
   IAMPolicyAVDefinitions:
     Type: String
-    Description: Name of IAM Policy for AV definations.
+    Description: Name of IAM Policy for AV Definitions.
     Default: AVDefinitionsLambdaPolicyNTest
   IAMPolicyAVScanner:
     Type: String
@@ -53,7 +62,7 @@ Parameters:
   
   LambdaAVUpdateDefinitionsScheduleRule:
     Type: String
-    Description: Name of Trigger rule for av definations function.
+    Description: Name of Trigger rule for av definitions function.
     Default: LambdaAVUpdateDefinitionsScheduleNTest
 Conditions:
   publicBucket:
@@ -133,7 +142,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName:
-        Ref: IAMDefinationsLambdaRole
+        Ref: IAMDefinitionsLambdaRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -281,7 +290,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName:
-        Ref: AVDefinationsFunction
+        Ref: AVDefinitionsFunction
       Description: LambdaFunction to update the AntiVirus definitions in the AV Definitions
         bucket.
       Runtime: python3.9
@@ -313,7 +322,7 @@ Resources:
       Name:
         Ref: LambdaAVUpdateDefinitionsScheduleRule
       Description: A schedule for the AV Update Definitions Lambda function.
-      ScheduleExpression: rate(1 minute)
+      ScheduleExpression: rate(3 hours)
       State: ENABLED
       Targets:
       - Arn:
@@ -470,6 +479,32 @@ Resources:
       ServiceToken: !GetAtt CustomResourceLambdaFunction.Arn
       LambdaArn: !GetAtt LambdaAVScanner.Arn
       Bucket: !Ref SourceBucket
+
+  versionScanner:
+    Type: AWS::Lambda::Version
+    DependsOn: LambdaAVScanner
+    Properties:
+      FunctionName: !Ref LambdaAVScanner
+      Description: v3
+  aliasScanner:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref LambdaAVScanner
+      FunctionVersion: !GetAtt versionScanner.Version
+      Name: !Ref AVScannerFunctionAlias 
+
+  versionDefinition:
+    Type: AWS::Lambda::Version
+    DependsOn: LambdaAVUpdateDefinitions
+    Properties:
+      FunctionName: !Ref LambdaAVUpdateDefinitions
+      Description: v3
+  aliasDefinition:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref LambdaAVUpdateDefinitions
+      FunctionVersion: !GetAtt versionDefinition.Version
+      Name: !Ref AVDefinitionsFunctionAlias
     
 Outputs:
   S3BucketAvDefinitions:
