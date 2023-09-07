@@ -14,36 +14,48 @@ Parameters:
     Description: Name of the source bucket whose objects will be scanned. If more
       than one source bucket, the others will have to be manually added to the AV
       Scanner Policy after creation.
-    Default: scanning-virus
     AllowedPattern: .+
+    Default: signed-code
+  LambdaFileS3BucketName:
+    Type: String
+    Description: Name of s3 bucket where lambda.zip file is uploaded
+    Default: signed-code
+  AVScannerFunctionAlias:
+    Type: String
+    Description: Name of Alias of AV Scan Lambda Function.
+    Default: avScannerAlias
   AVScannerFunction:
     Type: String
-    Description: Name of AV Scan Function.
-    Default: avScannerN2
-  AVDefinationsFunction:
+    Description: Name of AV Scan Lambda Function.
+    Default: avScannerNTest
+  AVDefinitionsFunctionAlias:
     Type: String
-    Description: Name of Defination Function.
-    Default: avUpdateDefinitionsN2
-  IAMDefinationsLambdaRole:
+    Description: Name of Alias of Definition Lambda Function.
+    Default: avUpdateDefinitionsAlias
+  AVDefinitionsFunction:
     Type: String
-    Description: Name of IAM Role for Defination.
-    Default: AVDefinitionsLambdaRoleN2
+    Description: Name of Definition Lambda Function.
+    Default: avUpdateDefinitionsNTest
+  IAMDefinitionsLambdaRole:
+    Type: String
+    Description: Name of IAM Role for Definition.
+    Default: AVDefinitionsLambdaRoleNTest
   IAMAVScannerLambdaRole:
     Type: String
     Description: Name of IAM Role for AV scanner.
-    Default: AVScannerLambdaRoleN2
+    Default: AVScannerLambdaRoleNTest
   IAMPolicyAVDefinitions:
     Type: String
-    Description: Name of IAM Policy for AV definations.
-    Default: AVDefinitionsLambdaPolicyN2
+    Description: Name of IAM Policy for AV Definitions.
+    Default: AVDefinitionsLambdaPolicyNTest
   IAMPolicyAVScanner:
     Type: String
     Description: Name of IAM Policy for AV scanner.
-    Default: AVScannerLambdaPolicyN2
+    Default: AVScannerLambdaPolicyNTest
   LambdaAVUpdateDefinitionsScheduleRule:
     Type: String
-    Description: Name of Trigger rule for av definations function.
-    Default: LambdaAVUpdateDefinitionsScheduleN2
+    Description: Name of Trigger rule for av definitions function.
+    Default: LambdaAVUpdateDefinitionsScheduleNTest
 Conditions:
   publicBucket:
     Fn::Equals:
@@ -126,7 +138,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName:
-        Ref: IAMDefinationsLambdaRole
+        Ref: IAMDefinitionsLambdaRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -282,13 +294,14 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName:
-        Ref: AVDefinationsFunction
+        Ref: AVDefinitionsFunction
       Description: LambdaFunction to update the AntiVirus definitions in the AV Definitions
         bucket.
-      Runtime: python3.9
+      Runtime: python3.10
       Code:
-        S3Bucket: s3-scan-n2
-        S3Key: dea5ff246aaf8e67dd715731ce39802e
+        S3Bucket:
+          Ref: LambdaFileS3BucketName
+        S3Key: lambda.zip
       Handler: update.lambda_handler
       MemorySize: 1024
       Timeout: 300
@@ -313,7 +326,7 @@ Resources:
       Name:
         Ref: LambdaAVUpdateDefinitionsScheduleRule
       Description: A schedule for the AV Update Definitions Lambda function.
-      ScheduleExpression: rate(1 minute)
+      ScheduleExpression: rate(3 hours)
       State: ENABLED
       Targets:
       - Arn:
@@ -340,10 +353,11 @@ Resources:
       FunctionName:
         Ref: AVScannerFunction
       Description: LambdaFunction to scan newly uploaded objects in S3.
-      Runtime: python3.9
+      Runtime: python3.10
       Code:
-        S3Bucket: s3-scan-n2
-        S3Key: dea5ff246aaf8e67dd715731ce39802e
+        S3Bucket:
+          Ref: LambdaFileS3BucketName
+        S3Key: lambda.zip
       Handler: scan.lambda_handler
       MemorySize: 1500
       Timeout: 300
@@ -379,7 +393,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
-        Version: 2012-10-17
+        Version: '2012-10-17'
         Statement:
         - Effect: Allow
           Principal:
@@ -391,7 +405,7 @@ Resources:
       Policies:
       - PolicyName: root
         PolicyDocument:
-          Version: 2012-10-17
+          Version: '2012-10-17'
           Statement:
           - Effect: Allow
             Action:
@@ -422,27 +436,27 @@ Resources:
           \    print(\"Received event: \" + json.dumps(event, indent=2))\n    responseData={}\n\
           \    try:\n        if event['RequestType'] == 'Delete':\n            print(\"\
           Request Type:\",event['RequestType'])\n            Bucket=event['ResourceProperties']['Bucket']\n\
-          \            # delete_notification(Bucket)\n            print(\"Sending\
-          \ response to custom resource after Delete\")\n        elif event['RequestType']\
+          \            delete_notification(Bucket)\n            print(\"Sending response\
+          \ to custom resource after Delete\")\n        elif event['RequestType']\
           \ == 'Create' or event['RequestType'] == 'Update':\n            print(\"\
           Request Type:\",event['RequestType'])\n            LambdaArn=event['ResourceProperties']['LambdaArn']\n\
-          \            Bucket=event['ResourceProperties']['Bucket']\n            #\
-          \ add_notification(LambdaArn, Bucket)\n            responseData={'Bucket':Bucket}\n\
-          \            print(\"Sending response to custom resource\")\n        responseStatus\
-          \ = 'SUCCESS'\n    except Exception as e:\n        print('Failed to process:',\
-          \ e)\n        responseStatus = 'FAILED'\n        responseData = {'Failure':\
-          \ 'Something bad happened.'}\n    cfnresponse.send(event, context, responseStatus,\
-          \ responseData)\n\n# def add_notification(LambdaArn, Bucket):\n#     bucket_notification\
-          \ = s3.BucketNotification(Bucket)\n#     response = bucket_notification.put(\n\
-          #       NotificationConfiguration={\n#         'LambdaFunctionConfigurations':\
-          \ [\n#           {\n#               'LambdaFunctionArn': LambdaArn,\n# \
-          \              'Events': [\n#                   's3:ObjectCreated:*'\n#\
-          \               ]\n#           }\n#         ]\n#       }\n#     )\n#   \
-          \  print(\"Put request completed....\")\n  \n# def delete_notification(Bucket):\n\
-          #     bucket_notification = s3.BucketNotification(Bucket)\n#     response\
-          \ = bucket_notification.put(\n#         NotificationConfiguration={}\n#\
-          \     )\n#     print(\"Delete request completed....\")\n"
-      Runtime: python3.9
+          \            Bucket=event['ResourceProperties']['Bucket']\n            add_notification(LambdaArn,\
+          \ Bucket)\n            responseData={'Bucket':Bucket}\n            print(\"\
+          Sending response to custom resource\")\n        responseStatus = 'SUCCESS'\n\
+          \    except Exception as e:\n        print('Failed to process:', e)\n  \
+          \      responseStatus = 'FAILED'\n        responseData = {'Failure': 'Something\
+          \ bad happened.'}\n    cfnresponse.send(event, context, responseStatus,\
+          \ responseData)\n\ndef add_notification(LambdaArn, Bucket):\n    bucket_notification\
+          \ = s3.BucketNotification(Bucket)\n    response = bucket_notification.put(\n\
+          \      NotificationConfiguration={\n        'LambdaFunctionConfigurations':\
+          \ [\n          {\n              'LambdaFunctionArn': LambdaArn,\n      \
+          \        'Events': [\n                  's3:ObjectCreated:*'\n         \
+          \     ]\n          }\n        ]\n      }\n    )\n    print(\"Put request\
+          \ completed....\")\n  \ndef delete_notification(Bucket):\n    bucket_notification\
+          \ = s3.BucketNotification(Bucket)\n    response = bucket_notification.put(\n\
+          \        NotificationConfiguration={}\n    )\n    print(\"Delete request\
+          \ completed....\")\n"
+      Runtime: python3.10
       Timeout: 50
     Metadata:
       SamResourceId: CustomResourceLambdaFunction
@@ -462,6 +476,50 @@ Resources:
         Ref: SourceBucket
     Metadata:
       SamResourceId: LambdaTrigger
+  versionScanner:
+    Type: AWS::Lambda::Version
+    DependsOn: LambdaAVScanner
+    Properties:
+      FunctionName:
+        Ref: LambdaAVScanner
+      Description: v3
+    Metadata:
+      SamResourceId: versionScanner
+  aliasScanner:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName:
+        Ref: LambdaAVScanner
+      FunctionVersion:
+        Fn::GetAtt:
+        - versionScanner
+        - Version
+      Name:
+        Ref: AVScannerFunctionAlias
+    Metadata:
+      SamResourceId: aliasScanner
+  versionDefinition:
+    Type: AWS::Lambda::Version
+    DependsOn: LambdaAVUpdateDefinitions
+    Properties:
+      FunctionName:
+        Ref: LambdaAVUpdateDefinitions
+      Description: v3
+    Metadata:
+      SamResourceId: versionDefinition
+  aliasDefinition:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName:
+        Ref: LambdaAVUpdateDefinitions
+      FunctionVersion:
+        Fn::GetAtt:
+        - versionDefinition
+        - Version
+      Name:
+        Ref: AVDefinitionsFunctionAlias
+    Metadata:
+      SamResourceId: aliasDefinition
 Outputs:
   S3BucketAvDefinitions:
     Value:

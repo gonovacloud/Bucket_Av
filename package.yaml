@@ -17,11 +17,12 @@ Parameters:
       than one source bucket, the others will have to be manually added to the AV
       Scanner Policy after creation.
     AllowedPattern: .+
+    Default: signed-code
   
   LambdaFileS3BucketName:
     Type: String
     Description: Name of s3 bucket where lambda.zip file is uploaded
-
+    Default: signed-code
 
   AVScannerFunctionAlias:
     Type: String
@@ -293,7 +294,7 @@ Resources:
         Ref: AVDefinitionsFunction
       Description: LambdaFunction to update the AntiVirus definitions in the AV Definitions
         bucket.
-      Runtime: python3.9
+      Runtime: python3.10
       # Code: Lambda/lambda.zip
       Code:
         S3Bucket:
@@ -345,7 +346,7 @@ Resources:
       FunctionName:
         Ref: AVScannerFunction
       Description: LambdaFunction to scan newly uploaded objects in S3.
-      Runtime: python3.9
+      Runtime: python3.10
       # Code: Lambda/lambda.zip
       Code:
         S3Bucket:
@@ -469,7 +470,7 @@ Resources:
                     NotificationConfiguration={}
                 )
                 print("Delete request completed....")
-      Runtime: python3.9
+      Runtime: python3.10
       Timeout: 50
 
   LambdaTrigger:
